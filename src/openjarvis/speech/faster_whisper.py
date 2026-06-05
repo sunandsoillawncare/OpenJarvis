@@ -8,12 +8,6 @@ from typing import List, Optional
 from openjarvis.core.registry import SpeechRegistry
 from openjarvis.speech._stubs import Segment, SpeechBackend, TranscriptionResult
 
-try:
-    from faster_whisper import WhisperModel
-except ImportError:
-    WhisperModel = None  # type: ignore[assignment, misc]
-
-
 @SpeechRegistry.register("faster-whisper")
 class FasterWhisperBackend(SpeechBackend):
     """Local speech-to-text using Faster-Whisper (CTranslate2)."""
@@ -29,17 +23,18 @@ class FasterWhisperBackend(SpeechBackend):
         self._model_size = model_size
         self._device = device
         self._compute_type = compute_type
-        self._model: Optional[WhisperModel] = None
+        self._model = None
 
-    def _ensure_model(self) -> WhisperModel:
-        """Lazy-load the Whisper model on first use."""
+    def _ensure_model(self):
         if self._model is None:
-            if WhisperModel is None:
+            try:
+                from faster_whisper import WhisperModel as _WhisperModel
+            except ImportError:
                 raise ImportError(
                     "faster-whisper is not installed. "
                     "Install with: uv sync --extra speech"
                 )
-            self._model = WhisperModel(
+            self._model = _WhisperModel(
                 self._model_size,
                 device=self._device,
                 compute_type=self._compute_type,
@@ -90,10 +85,13 @@ class FasterWhisperBackend(SpeechBackend):
         )
 
     def health(self) -> bool:
-        """Check if model is loaded or loadable."""
         if self._model is not None:
             return True
-        return WhisperModel is not None
+        try:
+            from faster_whisper import WhisperModel as _WM
+            return _WM is not None
+        except ImportError:
+            return False
 
     def supported_formats(self) -> List[str]:
         """Supported audio formats (same as ffmpeg/Whisper)."""
