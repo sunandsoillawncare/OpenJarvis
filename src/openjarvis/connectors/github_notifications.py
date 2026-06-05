@@ -68,7 +68,10 @@ class GitHubNotificationsConnector(BaseConnector):
         token = self._load_token()
         params: Dict[str, str] = {}
         if since is not None:
-            params["since"] = f"{since.isoformat()}Z"
+            from datetime import timezone
+            if since.tzinfo is None:
+                since = since.replace(tzinfo=timezone.utc)
+            params["since"] = since.isoformat().replace("+00:00", "Z")
 
         notifications = _github_api_get(token, params=params)
 

@@ -359,7 +359,10 @@ class GCalendarConnector(BaseConnector):
         # Default to 24 hours ago so we don't dump the entire calendar history
         if since is None:
             since = datetime.now() - timedelta(days=1)
-        time_min = since.strftime("%Y-%m-%dT%H:%M:%SZ")
+        from datetime import timezone
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        time_min = since.isoformat().replace("+00:00", "Z")
 
         synced = 0
 
