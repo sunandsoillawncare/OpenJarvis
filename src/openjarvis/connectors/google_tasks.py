@@ -86,7 +86,7 @@ class GoogleTasksConnector(BaseConnector):
                 "showHidden": "false",
             }
             if since:
-                params["updatedMin"] = since.isoformat() + "Z"
+                params["updatedMin"] = since.isoformat().replace("+00:00", "Z")
 
             tasks = call_with_refresh(
                 _tasks_api_get,
