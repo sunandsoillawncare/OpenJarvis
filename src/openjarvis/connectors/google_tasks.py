@@ -86,6 +86,9 @@ class GoogleTasksConnector(BaseConnector):
                 "showHidden": "false",
             }
             if since:
+                from datetime import timezone
+                if since.tzinfo is None:
+                    since = since.replace(tzinfo=timezone.utc)
                 params["updatedMin"] = since.isoformat().replace("+00:00", "Z")
 
             tasks = call_with_refresh(
