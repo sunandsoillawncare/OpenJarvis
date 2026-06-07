@@ -285,24 +285,79 @@ class CloudEngine(InferenceEngine):
         self._thought_sigs: Dict[str, bytes] = {}
         self._init_clients()
 
+    @staticmethod
+    def _read_cloud_keys() -> dict[str, str]:
+        """Merge API keys from cloud-keys.env and vault, with env taking priority."""
+        from pathlib import Path
+
+        keys: dict[str, str] = {}
+
+        # 1. ~/.openjarvis/cloud-keys.env (written by the UI settings screen)
+        env_file = Path.home() / ".openjarvis" / "cloud-keys.env"
+        if env_file.exists():
+            for raw in env_file.read_text().splitlines():
+                line = raw.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    keys[k.strip()] = v.strip()
+
+        # 2. ~/.openjarvis/vault.enc (encrypted credential store)
+        vault_file = Path.home() / ".openjarvis" / "vault.enc"
+        key_file = Path.home() / ".openjarvis" / ".vault_key"
+        if vault_file.exists() and key_file.exists():
+            try:
+                import json as _json
+
+                from cryptography.fernet import Fernet
+
+                f = Fernet(key_file.read_bytes().strip())
+                vault_data = _json.loads(f.decrypt(vault_file.read_bytes()).decode())
+                # Vault values only fill in gaps; env_file takes precedence
+                for k, v in vault_data.items():
+                    if k not in keys:
+                        keys[k] = v
+            except Exception:
+                pass
+
+        # 3. Process environment overrides everything
+        for name in (
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "OPENROUTER_API_KEY",
+            "MINIMAX_API_KEY",
+            "OPENAI_CODEX_API_KEY",
+            "OPENAI_CODEX_BASE_URL",
+        ):
+            val = os.environ.get(name)
+            if val:
+                keys[name] = val
+
+        return keys
+
     def _init_clients(self) -> None:
-        if os.environ.get("OPENAI_API_KEY"):
+        merged = self._read_cloud_keys()
+
+        openai_key = merged.get("OPENAI_API_KEY", "")
+        if openai_key:
             try:
                 import openai
 
-                self._openai_client = openai.OpenAI()
+                self._openai_client = openai.OpenAI(api_key=openai_key)
             except ImportError:
                 pass
-        if os.environ.get("ANTHROPIC_API_KEY"):
+
+        anthropic_key = merged.get("ANTHROPIC_API_KEY", "")
+        if anthropic_key:
             try:
                 import anthropic
 
-                self._anthropic_client = anthropic.Anthropic()
+                self._anthropic_client = anthropic.Anthropic(api_key=anthropic_key)
             except ImportError:
                 pass
-        gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get(
-            "GOOGLE_API_KEY"
-        )
+
+        gemini_key = merged.get("GEMINI_API_KEY", "") or merged.get("GOOGLE_API_KEY", "")
         if gemini_key:
             try:
                 from google import genai
@@ -310,7 +365,8 @@ class CloudEngine(InferenceEngine):
                 self._google_client = genai.Client(api_key=gemini_key)
             except ImportError:
                 pass
-        openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+
+        openrouter_key = merged.get("OPENROUTER_API_KEY", "")
         if openrouter_key:
             try:
                 import openai
@@ -321,7 +377,8 @@ class CloudEngine(InferenceEngine):
                 )
             except ImportError:
                 pass
-        minimax_key = os.environ.get("MINIMAX_API_KEY")
+
+        minimax_key = merged.get("MINIMAX_API_KEY", "")
         if minimax_key:
             try:
                 import openai
@@ -332,12 +389,13 @@ class CloudEngine(InferenceEngine):
                 )
             except ImportError:
                 pass
+
         # Codex — uses the OpenAI Responses API.
         # Supports both standard API keys (api.openai.com) and ChatGPT
         # OAuth tokens (chatgpt.com) via OPENAI_CODEX_BASE_URL override.
-        codex_token = os.environ.get("OPENAI_CODEX_API_KEY")
+        codex_token = merged.get("OPENAI_CODEX_API_KEY", "")
         if codex_token:
-            codex_url = os.environ.get(
+            codex_url = merged.get(
                 "OPENAI_CODEX_BASE_URL",
                 "https://api.openai.com/v1",
             ).rstrip("/")

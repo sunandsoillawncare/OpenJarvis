@@ -31,8 +31,17 @@ _HOST_MAP: Dict[str, str | None] = {
 }
 
 
+# Provider-name aliases: users can set engine.default = "anthropic" (etc.)
+# in config.toml; these map to the "cloud" registry key so health() and
+# model listing work correctly without requiring a separate engine class.
+_CLOUD_ALIASES = frozenset({"anthropic", "openai", "google", "openrouter", "minimax"})
+
+
 def _make_engine(key: str, config: JarvisConfig) -> InferenceEngine:
     """Instantiate a registered engine with the appropriate config host."""
+    # Resolve provider-name aliases (e.g. "anthropic") → "cloud"
+    if key in _CLOUD_ALIASES:
+        key = "cloud"
     cls = EngineRegistry.get(key)
 
     # gemma_cpp: pass config fields instead of host
@@ -172,12 +181,16 @@ def get_engine(
         keys_to_try.append(default_key)
 
     for key in keys_to_try:
-        if not EngineRegistry.contains(key):
+        # Resolve cloud aliases before the registry check so that
+        # engine.default = "anthropic" (etc.) works without a separate
+        # registry entry.
+        resolved = "cloud" if key in _CLOUD_ALIASES else key
+        if not EngineRegistry.contains(resolved):
             continue
         try:
-            engine = _make_engine(key, config)
+            engine = _make_engine(resolved, config)
             if engine.health():
-                return (key, engine)
+                return (resolved, engine)
         except Exception as exc:
             logger.debug("Engine %r health check failed: %s", key, exc)
 
