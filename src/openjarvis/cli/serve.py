@@ -195,7 +195,7 @@ def serve(
                     from openjarvis.tools._stubs import BaseTool
 
                     _DEFAULT_TOOLS = {"think", "calculator", "web_search"}
-                    configured = config.agent.tools
+                    configured = config.agent.tools or config.tools.enabled
                     if configured:
                         if isinstance(configured, list):
                             allowed = {
