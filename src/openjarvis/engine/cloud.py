@@ -236,15 +236,21 @@ def _annotate_anthropic_cache(messages: list[dict]) -> list[dict]:
 def _convert_tools_to_anthropic(
     openai_tools: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Convert OpenAI function-calling tools to Anthropic tool format."""
+    """Convert OpenAI function-calling tools to Anthropic tool format.
+
+    Anthropic requires ``input_schema`` to be a valid JSON Schema object.
+    Tools that omit or null-out their ``parameters`` field get the minimum
+    valid schema ``{"type": "object"}`` so the API never receives ``None``.
+    """
     result = []
     for tool in openai_tools:
         func = tool.get("function", {})
+        schema = func.get("parameters") or {"type": "object"}
         result.append(
             {
                 "name": func.get("name", ""),
                 "description": func.get("description", ""),
-                "input_schema": func.get("parameters", {}),
+                "input_schema": schema,
             }
         )
     return result
@@ -1177,13 +1183,7 @@ class CloudEngine(InferenceEngine):
     ) -> AsyncIterator[str]:
         if self._anthropic_client is None:
             raise EngineConnectionError("Anthropic client not available")
-        system_text = ""
-        chat_msgs: List[Dict[str, Any]] = []
-        for m in messages:
-            if m.role.value == "system":
-                system_text = m.content
-            else:
-                chat_msgs.append({"role": m.role.value, "content": m.content})
+        system_text, chat_msgs = self._prepare_anthropic_messages(messages)
         create_kwargs: Dict[str, Any] = {
             "model": model,
             "messages": chat_msgs,
@@ -1192,6 +1192,9 @@ class CloudEngine(InferenceEngine):
         }
         if system_text:
             create_kwargs["system"] = system_text
+        raw_tools = kwargs.pop("tools", None)
+        if raw_tools:
+            create_kwargs["tools"] = _convert_tools_to_anthropic(raw_tools)
         with self._anthropic_client.messages.stream(**create_kwargs) as stream:
             for text in stream.text_stream:
                 yield text
