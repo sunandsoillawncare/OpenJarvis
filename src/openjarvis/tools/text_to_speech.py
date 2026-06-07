@@ -58,9 +58,6 @@ class TextToSpeechTool(BaseTool):
 
         text = params.get("text", "")
         voice_id = params.get("voice_id", "")
-        backend_key = params.get("backend", "cartesia")
-        _ALIASES = {"openai": "openai_tts"}
-        backend_key = _ALIASES.get(backend_key, backend_key)
         output_dir = params.get("output_dir", "")
         speed = float(params.get("speed", 1.0))
 
@@ -70,6 +67,16 @@ class TextToSpeechTool(BaseTool):
                 content="No text provided.",
                 success=False,
             )
+
+        # Resolve the backend: explicit param > config default > first healthy
+        _ALIASES = {"openai": "openai_tts"}
+        requested = params.get("backend", "")
+        if requested:
+            backend_key = _ALIASES.get(requested, requested)
+        else:
+            from openjarvis.core.config import load_config
+            backend_key = load_config().digest.tts_backend or "cartesia"
+            backend_key = _ALIASES.get(backend_key, backend_key)
 
         if not TTSRegistry.contains(backend_key):
             return ToolResult(
@@ -81,7 +88,17 @@ class TextToSpeechTool(BaseTool):
         backend_cls = TTSRegistry.get(backend_key)
         backend = backend_cls()
 
-        result = backend.synthesize(text, voice_id=voice_id, speed=speed)
+        if not backend.health():
+            return ToolResult(
+                tool_name="text_to_speech",
+                content=f"TTS backend '{backend_key}' is not healthy (missing API key or dependencies).",
+                success=False,
+            )
+
+        synth_kwargs: dict[str, Any] = {"speed": speed}
+        if voice_id:
+            synth_kwargs["voice_id"] = voice_id
+        result = backend.synthesize(text, **synth_kwargs)
 
         # Save to file
         if output_dir:
