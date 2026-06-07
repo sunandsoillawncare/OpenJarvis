@@ -34,7 +34,11 @@ _HOST_MAP: Dict[str, str | None] = {
 # Provider-name aliases: users can set engine.default = "anthropic" (etc.)
 # in config.toml; these map to the "cloud" registry key so health() and
 # model listing work correctly without requiring a separate engine class.
-_CLOUD_ALIASES = frozenset({"anthropic", "openai", "google", "openrouter", "minimax"})
+# "cloud" is also included so that -e cloud / --engine cloud is resolved
+# through the same path as the named-provider aliases.
+_CLOUD_ALIASES = frozenset(
+    {"cloud", "anthropic", "openai", "google", "openrouter", "minimax"}
+)
 
 
 def _make_engine(key: str, config: JarvisConfig) -> InferenceEngine:
@@ -193,6 +197,12 @@ def get_engine(
                 return (resolved, engine)
         except Exception as exc:
             logger.debug("Engine %r health check failed: %s", key, exc)
+
+    # When the caller explicitly requested a specific engine, do not silently
+    # fall back to a different one — return None so the caller can surface a
+    # clear error message rather than sending requests to the wrong backend.
+    if engine_key:
+        return None
 
     # Fallback to any healthy engine
     healthy = discover_engines(config)
